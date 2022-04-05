@@ -1,0 +1,10 @@
+[
+ {
+    "id": 1,
+    "user_role": "executor"
+ },
+ {
+    "id": 2,
+    "user_role": "customer"
+ }
+]
