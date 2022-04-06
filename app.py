@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import relationship
 import json
@@ -34,6 +34,20 @@ class User(db.Model):
 
     role = relationship("UserRole")
 
+    def serialize_user(self):
+        """
+        Метод Serialize для класса User
+        """
+        return {
+            "id": self.id,
+            "first_name": self.first_name,
+            "last_name": self.last_name,
+            "age": self.age,
+            "email": self.email,
+            "role": self.role.user_role,
+            "phone": self.phone,
+        }
+
 
 class Order(db.Model):
     __tablename__ = 'orders'
@@ -49,7 +63,22 @@ class Order(db.Model):
 
     customer = relationship("User", foreign_keys="Order.customer_id")
     executor = relationship("User", foreign_keys="Order.executor_id")
-# customer_id should not be equal to executor_id for one order
+
+    def serialize_order(self):
+        """
+        Метод Serialize для класса Order
+        """
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "start_date": self.start_date,
+            "end_date": self.end_date,
+            "address": self.address,
+            "price": self.price,
+            "customer_id": self.customer_id,
+            "executor_id": self.executor_id,
+        }
 
 
 class Offer(db.Model):
@@ -61,12 +90,21 @@ class Offer(db.Model):
     executor = relationship("User")
     order = relationship("Order")
 
+    def serialize_offer(self):
+        """
+        Метод Serialize для класса Offer
+        """
+        return {
+            "id": self.id,
+            "order_id": self.order_id,
+            "executor_id": self.executor_id,
+        }
+
 
 db.drop_all()
 db.create_all()
 
 
-# import json data to file
 def load_data_from_json(file_json):
     """
     загружает данные из json файла
@@ -89,7 +127,7 @@ def data_migrate_commit(file_json, model_name):
     data = load_data_from_json(file_json)
 
     for data_item in data:
-
+        # меняем формат даты в orders.json со строки на формат для БД
         key_start = "start_date"
         if key_start in data_item.keys():
             start_date_value = data_item[key_start]
@@ -118,92 +156,251 @@ data_migrate_commit("orders.json", Order)
 data_migrate_commit("offers.json", Offer)
 
 
-
-
-
-#
-# db.session.add_all(users)
-# db.session.commit()
-
-
 # Users
-def serialize_user(user_data):
-    """
-    Serialize implementation
-    """
-    return {
-        "id": user_data.id,
-        "first_name": user_data.first_name,
-        "last_name": user_data.last_name,
-        "age": user_data.age,
-        "email": user_data.email,
-        "role": user_data.role,
-        "phone": user_data.phone,
-    }
+
+# все пользователи
+@app.route("/users", methods=["GET"])
+def get_all_users():
+    all_users = User.query.all()
+
+    users_to_show = []
+    for user in all_users:
+        user_dict = user.serialize_user()
+        users_to_show.append(user_dict)
+
+    return jsonify(users_to_show)
 
 
-# @app.route("/users/<int:uid>", methods=['GET'])
-# def get_one(uid):
-#     user = User.query.get(uid)
-#     if user is None:
-#         return "Такого пользователя не существует"
-#
-#     return jsonify(serialize_user(user))
-#
-#
-# @app.route("/users")
-# def get_all_users():
-#     all_users = User.query.all()
-#
-#     users_to_show = []
-#     for user in all_users:
-#         user_dict = serialize_user(user)
-#         users_to_show.append(user_dict)
-#
-#     return jsonify(users_to_show)
+# вьюшка на отображение 1 пользователя по его id
+@app.route("/users/<int:uid>", methods=["GET"])
+def get_user_by_uid(uid):
+    user = User.query.get(uid)
+    if user is None:
+        return "Такого пользователя не существует."
+
+    return jsonify(user.serialize_user())
 
 
-# serialize func for Orders, Offers separately. main approach is identical
+# добавление пользователя
+@app.route("/users", methods=["POST"])
+def add_new_user():
+    data = request.json
+
+    db.session.add(User(**data))
+    db.session.commit()
+
+    return "Пользователь добавлен."
+
+# Пример на добавление пользователя
+# {
+#     "age": 28,
+#     "email": "daniel_m@mymail.com",
+#     "first_name": "Malcolm",
+#     "last_name": "Dennie",
+#     "phone": "6428998000",
+#     "role_id": 1
+# }
 
 
+# обновление информации по пользователю
+@app.route("/users/<int:uid>", methods=["PUT"])
+def update_user_by_uid(uid):
+    data = request.json
+
+    user = db.session.query(User).filter(User.id == uid).first()
+    if user is None:
+        return "Такого пользователя не существует."
+
+    db.session.query(User).filter(User.id == uid).update(data)
+    db.session.commit()
+
+    return "Данные пользователя обновлены."
 
 
-# @app.route("/guides", methods=['POST'])
-# def create_guide():
-#     data = request.json
-#     guide = Guide(
-#         surname=data.get('surname'),
-#         full_name=data.get('full_name'),
-#         tours_count=data.get('tours_count'),
-#         bio=data.get('bio'),
-#         is_pro=data.get('is_pro'),
-#         company=data.get('company')
-#     )
-#     db.session.add(guide)
-#     db.session.commit()
-#     return jsonify(instance_to_dict(guide))
+# удаление пользователя
+@app.route("/users/<int:uid>", methods=["DELETE"])
+def delete_user_by_uid(uid):
+    user = db.session.query(User).filter(User.id == uid).first()
+    if user is None:
+        return "Такого пользователя не существует."
+
+    db.session.query(User).filter(User.id == uid).delete()
+    db.session.commit()
+
+    return "Данные пользователя удалены."
 
 
-# def update_tours_count():
-#     guide = Guide.query.get(1)
-#     guide.tours_count = 6
-#     db.session.add(guide)
-#     db.session.commit()
-#     db.session.close()
+#################################################################
+# Orders
 
-# @app.route("/guides/<int:gid>/delete")
-# def delete_guide_by_gid(gid):
-#     guide = Guide.query.get(gid)
-#     db.session.delete(guide)
-#     db.session.commit()
-#
-#     return jsonify("")
+# все заказы
+@app.route("/orders", methods=["GET"])
+def get_all_orders():
+    all_orders = Order.query.all()
 
+    orders_to_show = []
+    for order in all_orders:
+        order_dict = order.serialize_order()
+        orders_to_show.append(order_dict)
 
+    return jsonify(orders_to_show)
 
 
+# отображение данных по 1 заказу по его id
+@app.route("/orders/<int:order_id>", methods=["GET"])
+def get_order_by_id(order_id):
+    order = Order.query.get(order_id)
+    if order is None:
+        return "Такого заказа не существует."
+
+    return jsonify(order.serialize_order())
 
 
+# создание нового заказа. данные по дате сконвертированы в формат для БД.
+@app.route("/orders", methods=["POST"])
+def add_new_order():
+    data = request.json
+
+    key_start = "start_date"
+    if key_start in data.keys():
+        start_date_value = data[key_start]
+        if isinstance(start_date_value, str) and start_date_value.count("/") == 2:
+            data[key_start] = datetime.strptime(start_date_value, "%m/%d/%Y")
+
+    key_end = "end_date"
+    if key_end in data.keys():
+        end_date_value = data[key_end]
+        if isinstance(end_date_value, str) and end_date_value.count("/") == 2:
+            data[key_end] = datetime.strptime(end_date_value, "%m/%d/%Y")
+
+    db.session.add(Order(**data))
+    db.session.commit()
+
+    return "Заказ создан."
+
+# Пример
+# {
+#     "name": "Подготовиться к сдаче экзамена",
+#     "description": "Работа сама себя не сделает. Ползем в нужном направлении.",
+#     "start_date": "04/08/2021",
+#     "end_date": "03/28/2022",
+#     "address": "4759 William Haven Apt. 194\nWest Cornwall, TX 43080",
+#     "price": 5000,
+#     "customer_id": 3,
+#     "executor_id": 6
+#   }
+
+
+# обновление данных в заказе. данные по дате сконвертированы в формат для БД.
+@app.route("/orders/<int:order_id>", methods=["PUT"])
+def update_order_by_id(order_id):
+    data = request.json
+
+    order = db.session.query(Order).filter(Order.id == order_id).first()
+    if order is None:
+        return "Такого заказа не существует."
+
+    key_start = "start_date"
+    if key_start in data.keys():
+        start_date_value = data[key_start]
+        if isinstance(start_date_value, str) and start_date_value.count("/") == 2:
+            data[key_start] = datetime.strptime(start_date_value, "%m/%d/%Y")
+
+    key_end = "end_date"
+    if key_end in data.keys():
+        end_date_value = data[key_end]
+        if isinstance(end_date_value, str) and end_date_value.count("/") == 2:
+            data[key_end] = datetime.strptime(end_date_value, "%m/%d/%Y")
+
+    db.session.query(Order).filter(Order.id == order_id).update(data)
+    db.session.commit()
+
+    return "Данные по заказу обновлены."
+
+
+# удаление заказа
+@app.route("/orders/<int:order_id>", methods=["DELETE"])
+def delete_order_by_id(order_id):
+    order = db.session.query(Order).filter(Order.id == order_id).first()
+    if order is None:
+        return "Такого заказа не существует."
+
+    db.session.query(Order).filter(Order.id == order_id).delete()
+    db.session.commit()
+
+    return "Данные в заказе были удалены."
+
+
+###############################
+
+# Offers
+
+# все предложения от исполнителей по заказам
+@app.route("/offers", methods=["GET"])
+def get_all_offers():
+    all_offers = Offer.query.all()
+
+    offers_to_show = []
+    for offer in all_offers:
+        offer_dict = offer.serialize_offer()
+        offers_to_show.append(offer_dict)
+
+    return jsonify(offers_to_show)
+
+
+# данные по 1 предложению
+@app.route("/offers/<int:offer_id>", methods=["GET"])
+def get_offer_by_id(offer_id):
+    offer = Offer.query.get(offer_id)
+    if offer is None:
+        return "Выбранное предложение на исполнение заказа отсутствует."
+
+    return jsonify(offer.serialize_offer())
+
+
+# создание нового предложения на заказ
+@app.route("/offers", methods=["POST"])
+def add_new_offer():
+    data = request.json
+
+    db.session.add(Offer(**data))
+    db.session.commit()
+
+    return "Данные по предложению на исполнение заказа добавлены."
+
+# Пример
+# {
+#     "order_id": 50,
+#     "executor_id": 10
+#   }
+
+
+# обновление данных в предложении выполнить заказ
+@app.route("/offers/<int:offer_id>", methods=["PUT"])
+def update_offer_by_id(offer_id):
+    data = request.json
+
+    offer = db.session.query(Offer).filter(Offer.id == offer_id).first()
+    if offer is None:
+        return "Выбранное предложение на исполнение заказа отсутствует."
+
+    db.session.query(Offer).filter(Offer.id == offer_id).update(data)
+    db.session.commit()
+
+    return "Данные по предложению на исполнение заказа обновлены."
+
+
+# удаление предложения на выполнение заказа
+@app.route("/offers/<int:offer_id>", methods=["DELETE"])
+def delete_offer_by_id(offer_id):
+    offer = db.session.query(Offer).filter(Offer.id == offer_id).first()
+    if offer is None:
+        return "Выбранное предложение на исполнение заказа отсутствует."
+
+    db.session.query(Offer).filter(Offer.id == offer_id).delete()
+    db.session.commit()
+
+    return "Данные по предложению на исполнение заказа удалены."
 
 
 if __name__ == "__main__":
